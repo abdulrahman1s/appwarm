@@ -1,0 +1,9 @@
+[package]
+name = "appwarm"
+version = "0.4.0"
+edition = "2021"
+description = "Rootless Linux startup file profiler and idle page-cache warmer"
+license = "MIT"
+
+[dependencies]
+serde_json = "1"

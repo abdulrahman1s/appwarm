@@ -1,0 +1,138 @@
+use std::env;
+use std::fs::{self, DirBuilder};
+use std::io;
+use std::os::unix::fs::DirBuilderExt;
+use std::path::{Path, PathBuf};
+
+#[derive(Clone)]
+pub struct Config {
+    pub window_sec: u64,
+    pub budget_mib: u64,
+    pub min_available_mib: u64,
+    pub max_file_mib: u64,
+    pub stage_budget_mib: u64,
+    pub stage_settle_ms: u64,
+    pub stages: Vec<String>,
+    pub apps: String,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            window_sec: 10,
+            budget_mib: 256,
+            min_available_mib: 1024,
+            max_file_mib: 16,
+            stage_budget_mib: 2048,
+            stage_settle_ms: 2000,
+            stages: env::var("APPWARM_DEFAULT_STAGES")
+                .ok()
+                .map(|value| value.split(';').map(str::to_owned).collect())
+                .unwrap_or_default(),
+            apps: env::var("APPWARM_DEFAULT_APPS").unwrap_or_default(),
+        }
+    }
+}
+
+impl Config {
+    pub fn read(path: &Path) -> Self {
+        let mut cfg = Self::default();
+        if let Ok(text) = fs::read_to_string(path) {
+            let mut custom_stages = false;
+            for line in text.lines() {
+                let line = line.trim();
+                if line.starts_with('#') || line.is_empty() {
+                    continue;
+                }
+                let Some((key, value)) = line.split_once('=') else {
+                    continue;
+                };
+                let key = key.trim();
+                let value = value.trim();
+                if key == "apps" {
+                    cfg.apps = value.to_string();
+                    continue;
+                }
+                if key == "stage" || key == "stages" {
+                    if !custom_stages {
+                        cfg.stages.clear();
+                        custom_stages = true;
+                    }
+                    if key == "stages" {
+                        continue;
+                    }
+                    cfg.stages.push(value.to_owned());
+                    continue;
+                }
+                let Ok(n) = value.parse::<u64>() else {
+                    continue;
+                };
+                if n == 0 {
+                    continue;
+                }
+                match key {
+                    "window_sec" if n <= 3600 => cfg.window_sec = n,
+                    "budget_mib" if n <= 4096 => cfg.budget_mib = n,
+                    "min_available_mib" if n <= 1_048_576 => cfg.min_available_mib = n,
+                    "max_file_mib" if n <= 4096 => cfg.max_file_mib = n,
+                    "stage_budget_mib" if n <= 16384 => cfg.stage_budget_mib = n,
+                    "stage_settle_ms" if n <= 30000 => cfg.stage_settle_ms = n,
+                    _ => {}
+                }
+            }
+        }
+        cfg
+    }
+}
+
+pub struct Paths {
+    pub cache: PathBuf,
+    pub config: PathBuf,
+}
+
+impl Paths {
+    pub fn new() -> io::Result<Self> {
+        let home = env::var_os("HOME").ok_or_else(|| io::Error::other("HOME is unset"))?;
+        let home = PathBuf::from(home);
+        if !home.is_absolute() {
+            return Err(io::Error::other("HOME must be absolute"));
+        }
+        let cache_base = env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| home.join(".cache"));
+        let config_base = env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .unwrap_or_else(|| home.join(".config"));
+        Ok(Self {
+            cache: cache_base.join("appwarm"),
+            config: config_base.join("appwarm/config"),
+        })
+    }
+
+    pub fn profile(&self, name: &str) -> PathBuf {
+        self.cache.join(format!("{name}.profile"))
+    }
+
+    pub fn ensure_cache(&self) -> io::Result<()> {
+        DirBuilder::new()
+            .recursive(true)
+            .mode(0o700)
+            .create(&self.cache)?;
+        if !self.cache.is_dir() {
+            return Err(io::Error::other("cache path is not a directory"));
+        }
+        Ok(())
+    }
+}
+
+pub fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 64
+        && !name.starts_with('.')
+        && !name.contains("..")
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+}

@@ -1,0 +1,50 @@
+diff --git a/niri-config/src/window_rule.rs b/niri-config/src/window_rule.rs
+index f2bc2ad1..95417083 100644
+--- a/niri-config/src/window_rule.rs
++++ b/niri-config/src/window_rule.rs
+@@ -123,0 +124,3 @@ pub struct Match {
++    /// Match the client process's systemd cgroup before it sets an app ID.
++    #[knuffel(property, str)]
++    pub cgroup: Option<RegexEq>,
+diff --git a/src/window/mod.rs b/src/window/mod.rs
+index 14527cd2..f48f9b1d 100644
+--- a/src/window/mod.rs
++++ b/src/window/mod.rs
+@@ -1,0 +2 @@ use std::cmp::{max, min};
++use std::fs;
+@@ -17 +18 @@ use smithay::wayland::shell::xdg::{
+-use crate::utils::with_toplevel_role;
++use crate::utils::{get_credentials_for_surface, with_toplevel_role};
+@@ -389,0 +391,12 @@ fn window_matches(window: WindowRef, role: &XdgToplevelSurfaceRoleAttributes, m:
++    if let Some(cgroup_re) = &m.cgroup {
++        let Some(credentials) = get_credentials_for_surface(window.toplevel().wl_surface()) else {
++            return false;
++        };
++        let Ok(cgroup) = fs::read_to_string(format!("/proc/{}/cgroup", credentials.pid)) else {
++            return false;
++        };
++        if !cgroup_re.0.is_match(&cgroup) {
++            return false;
++        }
++    }
++
+diff --git a/src/handlers/mod.rs b/src/handlers/mod.rs
+--- a/src/handlers/mod.rs
++++ b/src/handlers/mod.rs
+@@ -821,6 +821,16 @@ impl XdgActivationHandler for State {
+         token_data: XdgActivationTokenData,
+         surface: WlSurface,
+     ) {
+         if token_data.timestamp.elapsed() < XDG_ACTIVATION_TOKEN_TIMEOUT {
++            // A client may request activation after its hidden window maps.
++            // Keep it hidden and leave the user's current workspace focused.
++            let is_hidden = self.niri.layout.workspaces().any(|(_, _, workspace)| {
++                workspace.hidden && workspace.find_wl_surface(&surface).is_some()
++            });
++            if is_hidden {
++                self.niri.activation_state.remove_token(&token);
++                return;
++            }
++
+             if let Some((mapped, _)) = self.niri.layout.find_window_and_output_mut(&surface) {
+                 let window = mapped.window.clone();

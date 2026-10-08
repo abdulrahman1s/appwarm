@@ -1,0 +1,13 @@
+[Unit]
+Description=Warm selected application startup files
+After=graphical-session.target
+ConditionPathExists=%h/.config/appwarm/config
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/appwarm warm-all
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=1
+IOWeight=1
+MemoryMax=512M

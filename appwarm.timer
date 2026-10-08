@@ -1,0 +1,11 @@
+[Unit]
+Description=Delay application warming until after session startup
+
+[Timer]
+OnActiveSec=2min
+OnUnitActiveSec=2h
+AccuracySec=1min
+Unit=appwarm.service
+
+[Install]
+WantedBy=default.target

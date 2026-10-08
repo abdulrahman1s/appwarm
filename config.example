@@ -1,0 +1,14 @@
+# Copy to ~/.config/appwarm/config. App names refer to learned profiles.
+apps=firefox,chromium,code,discord
+window_sec=10
+budget_mib=256
+min_available_mib=1024
+max_file_mib=16
+stage_budget_mib=2048
+stage_settle_ms=2000
+# One line per app. Fields: stage name | Wayland app ID | desktop file ID | command | arguments.
+# Custom stage lines replace the system defaults. Set stages=none to disable staging.
+stage=firefox|firefox|firefox.desktop|firefox|--no-remote
+stage=chromium|chromium|chromium.desktop|chromium|--ozone-platform=wayland
+stage=code|code|code.desktop|code|--ozone-platform=wayland|--new-window
+stage=discord|discord|discord.desktop|discord|--ozone-platform=wayland
