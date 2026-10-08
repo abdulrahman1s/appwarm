@@ -51,6 +51,10 @@ jobs:
         run: nix build .#appwarm --no-update-lock-file
       - name: Check flake outputs
         run: nix flake check --no-build --no-update-lock-file
+      - name: Check prebuilt patched Niri
+        run: |
+          nix build .#niri-appwarm-prebuilt --no-update-lock-file --out-link result-niri-prebuilt
+          ./result-niri-prebuilt/bin/niri --version | grep -F 'appwarm-hidden-'
 
   niri:
     if: startsWith(github.ref, 'refs/tags/v')

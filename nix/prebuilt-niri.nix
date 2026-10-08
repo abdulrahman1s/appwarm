@@ -1,28 +1,30 @@
-{ stdenv, lib, fetchurl, patchelf, niri, src ? fetchurl {
+{ stdenvNoCC, lib, fetchurl, pkgs, niri, archive ? fetchurl {
     url = "https://github.com/abdulrahman1s/appwarm/releases/download/v0.4.1/niri-appwarm-v0.4.1-x86_64-linux.tar.gz";
     hash = "sha256-npGx7CtWvRqMY0CZdHJRYUMlaIyi/San7Db62b057s8=";
   } }:
 
-stdenv.mkDerivation {
+stdenvNoCC.mkDerivation {
   pname = "niri-appwarm-prebuilt";
   version = "26.04";
-  inherit src;
+  src = archive;
 
-  nativeBuildInputs = [ patchelf ];
-  buildInputs = niri.buildInputs;
+  # These are the runtime outputs used by the pinned nixpkgs Niri build.
+  # Its buildInputs select development outputs, which do not contain the .so files.
+  buildInputs = with pkgs; map lib.getLib [
+    libinput pango glib cairo pipewire libdisplay-info_0_3 libgbm
+    seatd systemdMinimal pixman libxkbcommon libglvnd wayland glibc
+    gcc.cc.lib bash
+  ];
   dontUnpack = true;
   dontConfigure = true;
   dontBuild = true;
+  dontMoveSystemdUserUnits = true;
 
   installPhase = ''
     runHook preInstall
     mkdir -p "$out"
     tar -xzf "$src" -C "$out"
     chmod -R u+w "$out"
-    patchelf --set-interpreter "${stdenv.cc.bintools.dynamicLinker}" \
-      --set-rpath "${lib.makeLibraryPath ([ stdenv.cc.cc.lib ] ++ niri.buildInputs)}" \
-      "$out/bin/niri"
-    patchShebangs "$out/bin/niri-session"
     sed -E -i "s@^ExecStart=/nix/store/[^/]+/bin/niri@ExecStart=$out/bin/niri@" \
       "$out/share/systemd/user/niri.service"
     grep -qF "ExecStart=$out/bin/niri --session" "$out/share/systemd/user/niri.service"
