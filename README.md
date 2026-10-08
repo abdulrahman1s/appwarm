@@ -26,6 +26,10 @@ modules = [
   appwarm.nixosModules.default
   ./configuration.nix
 ];
+
+# Pass flake inputs to your configuration modules if they use the
+# prebuilt-package example below.
+specialArgs = { inherit inputs; };
 ```
 
 Configure your apps in a NixOS module:
@@ -58,9 +62,9 @@ stages = [
 The default package builds from this flake's source. On x86_64 Linux you can instead use the static GitHub Release binary:
 
 ```nix
-programs.appwarm.package = appwarm.lib.mkPrebuiltPackage pkgs {
+programs.appwarm.package = inputs.appwarm.lib.mkPrebuiltPackage pkgs {
   version = "0.4.1";
-  hash = "sha256-..."; # Nix SRI hash of the release tarball
+  hash = "sha256-3zS9o9xKfQII1H/1YHEV+3hLzV+pSB73NsYVmRrVg0M=";
 };
 ```
 
