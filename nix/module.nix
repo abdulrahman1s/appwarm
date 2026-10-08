@@ -37,7 +37,7 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ cfg.package ];
+    environment.systemPackages = [ cfg.package pkgs.strace ];
 
     programs.niri.package = lib.mkIf cfg.niri.enable
       (pkgs.callPackage ./niri-appwarm.nix { niri = cfg.niri.basePackage; });
