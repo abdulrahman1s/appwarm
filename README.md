@@ -59,7 +59,7 @@ The default package builds from this flake's source. On x86_64 Linux you can ins
 
 ```nix
 programs.appwarm.package = appwarm.lib.mkPrebuiltPackage pkgs {
-  version = "0.4.0";
+  version = "0.4.1";
   hash = "sha256-..."; # Nix SRI hash of the release tarball
 };
 ```

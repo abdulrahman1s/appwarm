@@ -99,8 +99,8 @@ pub fn mark_present_pages(
                 if pagemap.read_exact(&mut entries).is_err() {
                     break;
                 }
-                for (i, entry) in entries.chunks_exact(8).enumerate() {
-                    let bits = u64::from_ne_bytes(entry.try_into().unwrap());
+                for (i, entry) in entries.as_chunks::<8>().0.iter().enumerate() {
+                    let bits = u64::from_ne_bytes(*entry);
                     if bits & (PRESENT | FILE_PAGE) == PRESENT | FILE_PAGE {
                         profile.mark(
                             Path::new(path),

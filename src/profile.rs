@@ -465,7 +465,7 @@ fn hex_decode(s: &str) -> Option<PathBuf> {
         return None;
     }
     let mut bytes = Vec::with_capacity(s.len() / 2);
-    for pair in s.as_bytes().chunks_exact(2) {
+    for pair in s.as_bytes().as_chunks::<2>().0 {
         let value = |b: u8| match b {
             b'0'..=b'9' => Some(b - b'0'),
             b'a'..=b'f' => Some(b - b'a' + 10),
