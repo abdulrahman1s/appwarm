@@ -90,21 +90,7 @@ Restart Niri. Stock Niri lacks the hidden-workspace IPC and cgroup rule; Appwarm
 
 ### Prebuilt patched Niri
 
-The [v0.4.1 release](https://github.com/abdulrahman1s/appwarm/releases/tag/v0.4.1) includes an x86_64 Linux Nix closure for this patched Niri. Download its `.nix-export.zst` asset and `.sha256` file, then verify and import them:
-
-```sh
-asset=niri-appwarm-v0.4.1-x86_64-linux.nix-export.zst
-sha256sum -c "$asset.sha256"
-zstd -dc "$asset" | sudo nix-store --import
-```
-
-Starting with the next release, pin your Appwarm flake input to its tag and use the importer:
-
-```sh
-nix run github:abdulrahman1s/appwarm/vX.Y.Z#import-prebuilt-niri
-```
-
-Replace `vX.Y.Z` with the release tag. The importer downloads, verifies, and imports the archive. Keep Appwarm's pinned `nixpkgs` input (omit `inputs.appwarm.inputs.nixpkgs.follows`) so the current module's `programs.appwarm.niri.enable = true` selects that exact derivation. A custom `niri.basePackage` or aarch64 still builds from source.
+On x86_64 Linux, `programs.appwarm.niri.enable = true` uses the [prebuilt patched Niri](https://github.com/abdulrahman1s/appwarm/releases/tag/v0.4.1) by default. The release archive contains only the Niri package output (about 11 MiB); Nix fetches its libraries as normal dependencies. Set `programs.appwarm.niri.prebuilt = false` to compile Niri locally. A custom `niri.basePackage` or aarch64 Linux also builds from source. Keep Appwarm's pinned `nixpkgs` input for the prebuilt package; do not set `inputs.appwarm.inputs.nixpkgs.follows`.
 
 For manual control: `appwarm stage firefox --app-id firefox -- firefox`, `appwarm show firefox`, `appwarm staged`, and `appwarm evict firefox`.
 

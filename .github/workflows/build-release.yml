@@ -60,21 +60,17 @@ jobs:
       - uses: cachix/install-nix-action@v31
       - name: Check release version
         run: test "$GITHUB_REF_NAME" = "v$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
-      - name: Build Niri importer
-        run: nix build .#import-prebuilt-niri --no-update-lock-file --no-link
       - name: Build patched Niri
         run: nix build .#niri-appwarm --no-update-lock-file
-      - name: Export Nix store closure
+      - name: Package patched Niri output
         run: |
-          sudo apt-get update
-          sudo apt-get install -y zstd
-          asset="niri-appwarm-${GITHUB_REF_NAME}-x86_64-linux.nix-export.zst"
-          nix-store --export $(nix-store --query --requisites ./result) | zstd -T2 -10 -o "$asset"
+          asset="niri-appwarm-${GITHUB_REF_NAME}-x86_64-linux.tar.gz"
+          tar -C ./result -czf "$asset" .
           sha256sum "$asset" > "$asset.sha256"
       - uses: actions/upload-artifact@v4
         with:
           name: niri-release
-          path: niri-appwarm-v*.nix-export.zst*
+          path: niri-appwarm-v*.tar.gz*
           compression-level: 0
 
   release:
@@ -93,4 +89,4 @@ jobs:
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" appwarm-v*.tar.gz* niri-appwarm-v*.nix-export.zst* --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" appwarm-v*.tar.gz* niri-appwarm-v*.tar.gz* --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag

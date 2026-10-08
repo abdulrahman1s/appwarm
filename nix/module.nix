@@ -133,10 +133,15 @@ in
     };
     niri = {
       enable = lib.mkEnableOption "the patched Niri compositor needed for hidden execution staging";
+      prebuilt = lib.mkOption {
+        type = lib.types.bool;
+        default = pkgs.stdenv.hostPlatform.system == "x86_64-linux";
+        description = "Use the compact prebuilt patched Niri package on x86_64 Linux. Disable to compile it locally.";
+      };
       basePackage = lib.mkOption {
         type = lib.types.nullOr lib.types.package;
         default = null;
-        description = "Custom Niri base package to patch. By default, use this flake's exact Niri derivation so a matching prebuilt closure can be imported.";
+        description = "Custom Niri base package to patch; takes precedence over the prebuilt package.";
       };
     };
   };
@@ -159,10 +164,12 @@ in
       ++ map ({ app, ... }: app.package) applications;
 
     programs.niri.package = lib.mkIf cfg.niri.enable
-      (if cfg.niri.basePackage == null then
-        self.packages.${pkgs.stdenv.hostPlatform.system}.niri-appwarm
+      (if cfg.niri.basePackage != null then
+        pkgs.callPackage ./niri-appwarm.nix { niri = cfg.niri.basePackage; }
+      else if cfg.niri.prebuilt && pkgs.stdenv.hostPlatform.system == "x86_64-linux" then
+        self.packages.${pkgs.stdenv.hostPlatform.system}.niri-appwarm-prebuilt
       else
-        pkgs.callPackage ./niri-appwarm.nix { niri = cfg.niri.basePackage; });
+        self.packages.${pkgs.stdenv.hostPlatform.system}.niri-appwarm);
 
     systemd.user.services.appwarm = {
       description = "Warm selected application startup files";

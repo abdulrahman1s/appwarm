@@ -9,7 +9,6 @@
       systems = [ "x86_64-linux" "aarch64-linux" ];
       forSystems = lib.genAttrs systems;
       mkPkgs = system: import nixpkgs { inherit system; };
-      version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
     in
     {
       packages = forSystems (system:
@@ -19,12 +18,7 @@
           niri-appwarm = pkgs.callPackage ./nix/niri-appwarm.nix { };
           default = appwarm;
         } // lib.optionalAttrs (system == "x86_64-linux") {
-          import-prebuilt-niri = pkgs.writeShellApplication {
-            name = "appwarm-import-prebuilt-niri";
-            runtimeInputs = with pkgs; [ coreutils curl zstd ];
-            text = builtins.replaceStrings [ "@version@" ] [ version ]
-              (builtins.readFile ./nix/import-prebuilt-niri.sh);
-          };
+          niri-appwarm-prebuilt = pkgs.callPackage ./nix/prebuilt-niri.nix { };
         });
 
       apps = forSystems (system: {
@@ -32,12 +26,6 @@
           type = "app";
           program = "${self.packages.${system}.appwarm}/bin/appwarm";
           meta.description = "Run Appwarm";
-        };
-      } // lib.optionalAttrs (system == "x86_64-linux") {
-        import-prebuilt-niri = {
-          type = "app";
-          program = "${self.packages.${system}.import-prebuilt-niri}/bin/appwarm-import-prebuilt-niri";
-          meta.description = "Import the release's prebuilt patched Niri closure";
         };
       });
 
