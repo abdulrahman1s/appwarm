@@ -134,10 +134,9 @@ in
     niri = {
       enable = lib.mkEnableOption "the patched Niri compositor needed for hidden execution staging";
       basePackage = lib.mkOption {
-        type = lib.types.package;
-        default = pkgs.niri;
-        defaultText = "pkgs.niri";
-        description = "Niri package to override with the pinned hidden-workspace source and cgroup patch.";
+        type = lib.types.nullOr lib.types.package;
+        default = null;
+        description = "Custom Niri base package to patch. By default, use this flake's exact Niri derivation so a matching prebuilt closure can be imported.";
       };
     };
   };
@@ -160,7 +159,10 @@ in
       ++ map ({ app, ... }: app.package) applications;
 
     programs.niri.package = lib.mkIf cfg.niri.enable
-      (pkgs.callPackage ./niri-appwarm.nix { niri = cfg.niri.basePackage; });
+      (if cfg.niri.basePackage == null then
+        self.packages.${pkgs.stdenv.hostPlatform.system}.niri-appwarm
+      else
+        pkgs.callPackage ./niri-appwarm.nix { niri = cfg.niri.basePackage; });
 
     systemd.user.services.appwarm = {
       description = "Warm selected application startup files";
