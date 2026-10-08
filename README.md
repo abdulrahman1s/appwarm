@@ -37,27 +37,36 @@ Configure your apps in a NixOS module:
 ```nix
 programs.appwarm = {
   enable = true;
-  apps = [ "firefox" "brave" ];
-  stages = [
-    "firefox|firefox|firefox.desktop|firefox"
-    "code|code|code.desktop|code|--new-window"
-  ];
+  applications = {
+    firefox = pkgs.firefox;
+    code = {
+      package = pkgs.vscode;
+      stage.enable = true;
+      stage.appId = "code";
+      stage.desktopId = "code.desktop";
+      stage.arguments = [ "--new-window" ];
+    };
+  };
+  settings.stage_budget_mib = 1536;
   niri.enable = true;
 };
 ```
 
-Each `stages` entry is `NAME|APP_ID|DESKTOP_ID.desktop|COMMAND|ARG...`. Use the desktop ID and app ID installed on your machine. The module installs appwarm, starts delayed page-cache and staging timers, syncs selected desktop launchers, and runs a small memory-pressure watcher. A configured launcher reveals a staged window when one exists and otherwise launches normally. Existing user-owned desktop entries are left alone.
+The `applications` attribute names are learned profile names. A package value installs the package and includes its profile in page-cache warming. A detailed value can set `warm = false`, enable hidden staging, and specify `stage.appId`, `stage.desktopId`, `stage.command`, and `stage.arguments`. Staging is opt-in. The command defaults to the package's main executable, while the app ID and desktop ID default to the attribute name and `<name>.desktop`; set them explicitly when the package uses different values. Learn a profile before warming it, for example `appwarm learn firefox -- firefox`.
 
-For other apps, adapt these entries to the desktop IDs and commands installed on your system:
+The module installs appwarm and configured application packages, starts delayed page-cache and staging timers, syncs selected desktop launchers, and runs a small memory-pressure watcher. A configured launcher reveals a staged window when one exists and otherwise launches normally. Existing user-owned desktop entries are left alone.
+
+For other apps, adapt the IDs and arguments to their installed desktop entries:
 
 ```nix
-stages = [
-  "firefox|firefox|firefox.desktop|firefox"
-  "chromium|chromium|chromium.desktop|chromium|--ozone-platform=wayland"
-  "code|code|code.desktop|code|--new-window"
-  "discord|discord|discord.desktop|discord"
-];
+programs.appwarm.applications.chromium = {
+  package = pkgs.chromium;
+  stage.enable = true;
+  stage.arguments = [ "--ozone-platform=wayland" ];
+};
 ```
+
+The existing `apps = [ "firefox" ];` and `stages = [ "firefox|firefox|firefox.desktop|firefox" ];` options still work and are combined with `applications`. `settings` exposes `window_sec`, `budget_mib`, `min_available_mib`, `max_file_mib`, `stage_budget_mib`, and `stage_settle_ms`. Values in the user's `~/.config/appwarm/config` override these module defaults.
 
 The default package builds from this flake's source. On x86_64 Linux you can instead use the static GitHub Release binary:
 
@@ -135,7 +144,7 @@ Key settings:
 | `stage_budget_mib` | 2048 | Maximum total memory for frozen staged apps |
 | `stage_settle_ms` | 2000 | Wait after the first staged window appears |
 
-The module's `apps` and `stages` options set defaults; entries in the user config override them. `stages=none` disables staging from the user config. Appwarm also stops the largest frozen stage if available RAM falls below the guard or memory pressure rises. A later launch then follows the ordinary path. The monitor never evicts an app that has already been revealed.
+The module's `applications`, `apps`, `stages`, and `settings` options set defaults; entries in the user config override them. `stages=none` disables staging from the user config. Appwarm also stops the largest frozen stage if available RAM falls below the guard or memory pressure rises. A later launch then follows the ordinary path. The monitor never evicts an app that has already been revealed.
 
 ## How learning works
 

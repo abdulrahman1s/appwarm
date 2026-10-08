@@ -19,12 +19,12 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            window_sec: 10,
-            budget_mib: 256,
-            min_available_mib: 1024,
-            max_file_mib: 16,
-            stage_budget_mib: 2048,
-            stage_settle_ms: 2000,
+            window_sec: default_number("WINDOW_SEC", 10, 3600),
+            budget_mib: default_number("BUDGET_MIB", 256, 4096),
+            min_available_mib: default_number("MIN_AVAILABLE_MIB", 1024, 1_048_576),
+            max_file_mib: default_number("MAX_FILE_MIB", 16, 4096),
+            stage_budget_mib: default_number("STAGE_BUDGET_MIB", 2048, 16384),
+            stage_settle_ms: default_number("STAGE_SETTLE_MS", 2000, 30000),
             stages: env::var("APPWARM_DEFAULT_STAGES")
                 .ok()
                 .map(|value| value.split(';').map(str::to_owned).collect())
@@ -32,6 +32,14 @@ impl Default for Config {
             apps: env::var("APPWARM_DEFAULT_APPS").unwrap_or_default(),
         }
     }
+}
+
+fn default_number(name: &str, fallback: u64, max: u64) -> u64 {
+    env::var(format!("APPWARM_DEFAULT_{name}"))
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| (1..=max).contains(value))
+        .unwrap_or(fallback)
 }
 
 impl Config {
