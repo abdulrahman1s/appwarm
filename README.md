@@ -18,6 +18,7 @@ Add the flake input and module:
 ```nix
 inputs.appwarm = {
   url = "github:abdulrahman1s/appwarm";
+  inputs.nixpkgs.follows = "nixpkgs";
 };
 
 # In nixosSystem:
@@ -90,7 +91,7 @@ Restart Niri. Stock Niri lacks the hidden-workspace IPC and cgroup rule; Appwarm
 
 ### Prebuilt patched Niri
 
-On x86_64 Linux, `programs.appwarm.niri.enable = true` uses the [prebuilt patched Niri](https://github.com/abdulrahman1s/appwarm/releases/tag/v0.4.1) by default. The release archive contains only the Niri package output (about 11 MiB); Nix fetches its libraries as normal dependencies. Set `programs.appwarm.niri.prebuilt = false` to compile Niri locally. A custom `niri.basePackage` or aarch64 Linux also builds from source. Keep Appwarm's pinned `nixpkgs` input for the prebuilt package; do not set `inputs.appwarm.inputs.nixpkgs.follows`.
+On x86_64 Linux, `programs.appwarm.niri.enable = true` uses the [prebuilt patched Niri](https://github.com/abdulrahman1s/appwarm/releases/tag/v0.4.1) by default. The release archive contains only the Niri package output (about 11 MiB); Nix fetches its libraries from a separate pinned nixpkgs input. The main `nixpkgs` input can follow yours as shown above. Set `programs.appwarm.niri.prebuilt = false` to compile Niri locally. A custom `niri.basePackage` or aarch64 Linux also builds from source.
 
 For manual control: `appwarm stage firefox --app-id firefox -- firefox`, `appwarm show firefox`, `appwarm staged`, and `appwarm evict firefox`.
 
