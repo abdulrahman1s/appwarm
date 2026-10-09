@@ -5,7 +5,7 @@ Appwarm helps Linux desktop apps feel ready sooner. It has two independent modes
 - **Page-cache warming** learns which files an app reads during startup and requests those pages before the next launch. It works on any Linux desktop. The cache is reclaimable; warming can reduce storage faults but does not run the app or make an already hot app execute faster.
 - **Hidden staging** starts an app on a hidden workspace, waits for its window, then freezes the process until you open it. This pays startup cost before reveal and uses real RAM. It requires the experimental patched Niri build and is opt-in.
 
-Both modes run as your desktop user. Appwarm limits I/O and memory use and evicts frozen stages under memory pressure.
+Both modes run as your desktop user. Appwarm limits I/O and memory use and evicts frozen stages under memory pressure. After a configured app's last window closes, the monitor prepares a fresh stage for its next launch. It also detects apps opened normally before their first stage was ready.
 
 ## The macOS analogy
 
@@ -66,7 +66,7 @@ appwarm warm firefox
 appwarm status firefox
 ```
 
-Relearn after app updates or major startup changes. The NixOS module schedules warming after login and periodically afterward. Its `settings` option exposes `window_sec`, `budget_mib`, `min_available_mib`, `max_file_mib`, `stage_budget_mib`, and `stage_settle_ms`; see [config.example](config.example) for defaults and user overrides.
+Relearn after app updates or major startup changes. The NixOS module schedules warming after login and periodically afterward. Its `settings` option exposes `window_sec`, `budget_mib`, `min_available_mib`, `max_file_mib`, `stage_budget_mib`, `stage_settle_ms`, and `restage_delay_sec`; see [config.example](config.example) for defaults and user overrides.
 
 For a standalone install, run `cargo install --locked --path .` and install `strace` for `learn`.
 
@@ -87,13 +87,16 @@ window-rule {
 }
 ```
 
-Restart Niri. Stock Niri lacks the hidden-workspace IPC and cgroup rule; Appwarm refuses to stage without them. The module stages selected apps after login and wraps their desktop launchers to reveal them. Existing user-owned desktop entries are left alone. A staged app can still perform network activity or send notifications before you reveal it.
+Restart Niri. Stock Niri lacks the hidden-workspace IPC and cgroup rule; Appwarm refuses to stage without them. The module stages selected apps after login, wraps their desktop launchers to reveal them, and runs a monitor that restages an app after its last window closes. The default delay is five seconds; failed attempts retry after one minute. Closing all windows of an Appwarm-launched app also stops any remaining process in its Appwarm unit before restaging. Manual `evict` does not schedule a replacement. Existing user-owned desktop entries are left alone. A staged app can still perform network activity or send notifications before you reveal it.
+
+For sandboxed apps, set `applications.<name>.package` and `stage.command` to the sandbox wrapper executable, and set `stage.appId` to the actual Wayland app ID. Keep the wrapper's desktop ID in `stage.desktopId`. Appwarm does not add sandbox permissions or bypass the wrapper. Its hidden-window guard also requires the window process to remain in the Appwarm transient unit; wrappers that move it to another cgroup cannot be staged safely.
 
 ### Prebuilt patched Niri
 
 On x86_64 Linux, `programs.appwarm.niri.enable = true` uses the [prebuilt patched Niri](https://github.com/abdulrahman1s/appwarm/releases/tag/v0.4.1) by default. The release archive contains only the Niri package output (about 11 MiB); Nix fetches its libraries from a separate pinned nixpkgs input. The main `nixpkgs` input can follow yours as shown above. Set `programs.appwarm.niri.prebuilt = false` to compile Niri locally. A custom `niri.basePackage` or aarch64 Linux also builds from source.
 
 For manual control: `appwarm stage firefox --app-id firefox -- firefox`, `appwarm show firefox`, `appwarm staged`, and `appwarm evict firefox`.
+Run `appwarm doctor` in a Niri session to check the patched IPC, hidden workspace, configured desktop entries, and stage commands. The cgroup rule is verified when an app is staged.
 
 ## Benchmark
 

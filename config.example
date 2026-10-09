@@ -6,6 +6,7 @@ min_available_mib=1024
 max_file_mib=16
 stage_budget_mib=2048
 stage_settle_ms=2000
+restage_delay_sec=5
 # One line per app. Fields: stage name | Wayland app ID | desktop file ID | command | arguments.
 # Custom stage lines replace the system defaults. Set stages=none to disable staging.
 stage=firefox|firefox|firefox.desktop|firefox|--no-remote

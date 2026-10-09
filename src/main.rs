@@ -19,7 +19,7 @@ use std::process::Command;
 use std::{env, fs, io};
 
 fn usage() -> ! {
-    eprintln!("usage: appwarm [--debug] [--window SECONDS] [--budget-mib MIB] learn NAME [-- COMMAND [ARGS...]]\n       appwarm [--debug] [--budget-mib MIB] warm NAME|warm-all|status NAME|forget NAME|list\n       appwarm [--debug] stage NAME --app-id APP_ID -- COMMAND [ARGS...]\n       appwarm [--debug] show NAME|evict NAME|is-staged NAME|staged\n       appwarm stage-all|desktop-sync|monitor\n       appwarm desktop|launch NAME -- COMMAND [ARGS...]");
+    eprintln!("usage: appwarm [--debug] [--window SECONDS] [--budget-mib MIB] learn NAME [-- COMMAND [ARGS...]]\n       appwarm [--debug] [--budget-mib MIB] warm NAME|warm-all|status NAME|forget NAME|list\n       appwarm [--debug] stage NAME --app-id APP_ID -- COMMAND [ARGS...]\n       appwarm [--debug] show NAME|evict NAME|is-staged NAME|staged\n       appwarm doctor|stage-all|desktop-sync|monitor\n       appwarm desktop|launch NAME -- COMMAND [ARGS...]");
     std::process::exit(2)
 }
 
@@ -94,9 +94,10 @@ fn run() -> io::Result<()> {
             }
         }
         "staged" if i == args.len() => stage::list()?,
+        "doctor" if i == args.len() => stage::doctor(&cfg)?,
         "stage-all" if i == args.len() => stage::stage_all(&paths, &cfg, debug)?,
         "desktop-sync" if i == args.len() => desktop::sync(&cfg)?,
-        "monitor" if i == args.len() => stage::monitor(&cfg, debug)?,
+        "monitor" if i == args.len() => stage::monitor(&paths, &cfg, debug)?,
         "learn" | "warm" | "status" | "forget" | "stage" | "show" | "evict" | "is-staged"
         | "launch" | "desktop" => {
             let Some(name) = args.get(i) else { usage() };

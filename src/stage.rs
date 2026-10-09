@@ -2,8 +2,10 @@
 //! The app remains a native client of niri; no pixels or input are proxied.
 
 use crate::config::{valid_name, Config, Paths};
+use crate::desktop;
 use crate::linux::memory_headroom;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
@@ -12,7 +14,7 @@ use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::PathBuf;
 use std::process::{Command, Output};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const HIDDEN_WORKSPACE: &str = "appwarm-hidden";
 const LOCK_EX: i32 = 2;
@@ -32,6 +34,38 @@ struct Staged {
     app_id: String,
     unit: String,
     window_id: u64,
+}
+
+struct StageEntry {
+    name: String,
+    app_id: String,
+    desktop_id: String,
+    command: Vec<String>,
+}
+
+fn configured_stages(cfg: &Config) -> Vec<StageEntry> {
+    cfg.stages
+        .iter()
+        .filter_map(|entry| {
+            let fields: Vec<_> = entry.split('|').collect();
+            if fields.len() < 4
+                || !valid_name(fields[0])
+                || !valid_app_id(fields[1])
+                || !fields[2].ends_with(".desktop")
+                || !valid_name(fields[2])
+                || fields[3..].iter().any(|part| part.is_empty())
+            {
+                eprintln!("appwarm: ignoring invalid stage entry: {entry}");
+                return None;
+            }
+            Some(StageEntry {
+                name: fields[0].to_owned(),
+                app_id: fields[1].to_owned(),
+                desktop_id: fields[2].to_owned(),
+                command: fields[3..].iter().map(|part| (*part).to_owned()).collect(),
+            })
+        })
+        .collect()
 }
 
 fn runtime() -> io::Result<Runtime> {
@@ -61,6 +95,10 @@ fn state_path(rt: &Runtime, name: &str) -> PathBuf {
     rt.dir.join(format!("{name}.stage"))
 }
 
+fn active_path(rt: &Runtime, name: &str) -> PathBuf {
+    rt.dir.join(format!("{name}.active"))
+}
+
 fn save(rt: &Runtime, stage: &Staged) -> io::Result<()> {
     let path = state_path(rt, &stage.name);
     let temp = path.with_extension("stage.tmp");
@@ -79,8 +117,8 @@ fn save(rt: &Runtime, stage: &Staged) -> io::Result<()> {
     fs::rename(temp, path)
 }
 
-fn read(rt: &Runtime, name: &str) -> io::Result<Staged> {
-    let text = fs::read_to_string(state_path(rt, name))?;
+fn read_path(path: PathBuf, name: &str) -> io::Result<Staged> {
+    let text = fs::read_to_string(path)?;
     let mut lines = text.lines();
     let unit = lines
         .next()
@@ -92,7 +130,17 @@ fn read(rt: &Runtime, name: &str) -> io::Result<Staged> {
     let app_id = lines
         .next()
         .ok_or_else(|| io::Error::other("invalid stage app ID"))?;
-    if unit != format!("appwarm-stage-{name}.service") || !valid_app_id(app_id) {
+    let prefix = format!("appwarm-stage-{name}");
+    let valid_unit = unit
+        .strip_prefix(&prefix)
+        .and_then(|suffix| suffix.strip_suffix(".service"))
+        .is_some_and(|suffix| {
+            suffix.is_empty()
+                || suffix.strip_prefix('-').is_some_and(|digits| {
+                    !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit())
+                })
+        });
+    if !valid_unit || !valid_app_id(app_id) {
         return Err(io::Error::other("invalid stage state"));
     }
     Ok(Staged {
@@ -101,6 +149,10 @@ fn read(rt: &Runtime, name: &str) -> io::Result<Staged> {
         unit: unit.to_owned(),
         window_id,
     })
+}
+
+fn read(rt: &Runtime, name: &str) -> io::Result<Staged> {
+    read_path(state_path(rt, name), name)
 }
 
 fn stages(rt: &Runtime) -> io::Result<Vec<Staged>> {
@@ -243,7 +295,26 @@ pub fn stage(
     // The permanent compositor rule must be loaded before any app connects.
     // A per-launch config reload races the first mapped Wayland surface.
     let hidden_ids = hidden_workspace_ids()?;
-    let unit = format!("appwarm-stage-{name}.service");
+    let active_file = active_path(&rt, name);
+    if active_file.exists() {
+        let active = read_path(active_file, name)?;
+        if baseline
+            .iter()
+            .any(|window| window_in_unit(window, &active.unit).unwrap_or(false))
+        {
+            return Err(io::Error::other("an earlier app window is still open"));
+        }
+        if unit_active(&active.unit) {
+            run("systemctl", &["--user", "stop", &active.unit])?;
+        }
+    }
+    // Revealed applications can keep a background process after their last
+    // window closes. A new stage must not reuse that process's transient unit.
+    let generation = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(io::Error::other)?
+        .as_millis();
+    let unit = format!("appwarm-stage-{name}-{generation}.service");
 
     let result = (|| -> io::Result<Staged> {
         let mut cmd = Command::new("systemd-run");
@@ -385,6 +456,11 @@ pub fn stage(
                 let _ = run("systemctl", &["--user", "stop", &unit]);
                 return Err(error);
             }
+            if active_path(&rt, name).exists() {
+                if let Err(error) = fs::remove_file(active_path(&rt, name)) {
+                    eprintln!("appwarm: could not remove old active record for {name}: {error}");
+                }
+            }
             if debug {
                 eprintln!(
                     "appwarm: froze {} in {} ({} MiB)",
@@ -449,7 +525,13 @@ pub fn show(name: &str, _paths: &Paths, debug: bool) -> io::Result<()> {
             "MemoryMax=infinity",
         ],
     );
-    run(
+    // The rename records the revealed instance for the monitor, even if the
+    // user closes the window before its next poll.
+    if let Err(error) = fs::rename(state_path(&rt, name), active_path(&rt, name)) {
+        let _ = run("systemctl", &["--user", "freeze", &staged.unit]);
+        return Err(error);
+    }
+    if let Err(error) = run(
         "niri",
         &[
             "msg",
@@ -461,9 +543,14 @@ pub fn show(name: &str, _paths: &Paths, debug: bool) -> io::Result<()> {
             "false",
             &dest,
         ],
-    )?;
-    run("niri", &["msg", "action", "focus-window", "--id", &id])?;
-    fs::remove_file(state_path(&rt, name))?;
+    ) {
+        let _ = fs::rename(active_path(&rt, name), state_path(&rt, name));
+        let _ = run("systemctl", &["--user", "freeze", &staged.unit]);
+        return Err(error);
+    }
+    if let Err(error) = run("niri", &["msg", "action", "focus-window", "--id", &id]) {
+        eprintln!("appwarm: moved {name} but could not focus its window: {error}");
+    }
     if debug {
         eprintln!("appwarm: revealed window {id} in workspace {dest}");
     }
@@ -496,27 +583,54 @@ pub fn has(name: &str) -> io::Result<bool> {
 }
 
 pub fn stage_all(paths: &Paths, cfg: &Config, debug: bool) -> io::Result<()> {
-    for entry in &cfg.stages {
-        let fields: Vec<_> = entry.split('|').collect();
-        if fields.len() < 4
-            || !valid_name(fields[0])
-            || !valid_app_id(fields[1])
-            || !fields[2].ends_with(".desktop")
-            || fields[3..].iter().any(|part| part.is_empty())
-        {
-            eprintln!("appwarm: ignoring invalid stage entry: {entry}");
+    for entry in configured_stages(cfg) {
+        if has(&entry.name)? {
             continue;
         }
-        if has(fields[0])? {
-            continue;
-        }
-        let command: Vec<String> = fields[3..].iter().map(|part| (*part).to_owned()).collect();
-        if let Err(error) = stage(fields[0], fields[1], &command, paths, cfg, debug) {
+        if let Err(error) = stage(
+            &entry.name,
+            &entry.app_id,
+            &entry.command,
+            paths,
+            cfg,
+            debug,
+        ) {
             // Already-open apps and insufficient headroom are expected. One
             // failure must not prevent another selected app from staging.
-            eprintln!("appwarm: skipped {}: {error}", fields[0]);
+            eprintln!("appwarm: skipped {}: {error}", entry.name);
         }
     }
+    Ok(())
+}
+
+pub fn doctor(cfg: &Config) -> io::Result<()> {
+    let entries = configured_stages(cfg);
+    if entries.is_empty() {
+        println!("no apps configured for hidden staging");
+        return Ok(());
+    }
+    if entries.len() != cfg.stages.len() {
+        return Err(io::Error::other("one or more stage entries are invalid"));
+    }
+    let hidden_ids = hidden_workspace_ids()?;
+    println!("patched Niri IPC and hidden workspace: ready ({hidden_ids:?})");
+    for entry in entries {
+        let source = desktop::source(&entry.desktop_id)?;
+        if entry.command[0].contains('/') && !std::path::Path::new(&entry.command[0]).exists() {
+            return Err(io::Error::other(format!(
+                "{} stage command is unavailable: {}",
+                entry.name, entry.command[0]
+            )));
+        }
+        println!(
+            "{}: app ID {}, desktop {}, command {}",
+            entry.name,
+            entry.app_id,
+            source.display(),
+            entry.command[0]
+        );
+    }
+    println!("cgroup routing and window ownership are verified during staging");
     Ok(())
 }
 
@@ -537,10 +651,14 @@ fn pressure_high() -> io::Result<bool> {
     Ok(avg10 >= 2.0)
 }
 
-pub fn monitor(cfg: &Config, _debug: bool) -> io::Result<()> {
+pub fn monitor(paths: &Paths, cfg: &Config, debug: bool) -> io::Result<()> {
+    let entries = configured_stages(cfg);
+    let mut next_attempt: HashMap<String, Instant> = HashMap::new();
+    let mut observed_open: HashSet<String> = HashSet::new();
     loop {
         let headroom = memory_headroom(cfg)?;
-        if headroom == 0 || pressure_high()? {
+        let pressured = headroom == 0 || pressure_high()?;
+        if pressured {
             let rt = runtime()?;
             let mut candidates = stages(&rt)?;
             // Reclaim the largest frozen unit first. No user-visible unit is
@@ -557,6 +675,80 @@ pub fn monitor(cfg: &Config, _debug: bool) -> io::Result<()> {
                 run("systemctl", &["--user", "stop", &candidate.unit])?;
                 fs::remove_file(state_path(&rt, &candidate.name))?;
             }
+        } else if !entries.is_empty() {
+            let windows = match window_list() {
+                Ok(windows) => windows,
+                Err(error) => {
+                    if debug {
+                        eprintln!("appwarm: waiting for Niri: {error}");
+                    }
+                    thread::sleep(Duration::from_secs(2));
+                    continue;
+                }
+            };
+            for entry in &entries {
+                let rt = runtime()?;
+                let stage_file = state_path(&rt, &entry.name);
+                let active_file = active_path(&rt, &entry.name);
+                if stage_file.exists() {
+                    let staged = read(&rt, &entry.name)?;
+                    if unit_active(&staged.unit)
+                        && windows
+                            .iter()
+                            .any(|w| w["id"].as_u64() == Some(staged.window_id))
+                    {
+                        observed_open.remove(&entry.name);
+                        next_attempt.remove(&entry.name);
+                        continue;
+                    }
+                    // A crashed frozen app must not leave a permanent stage
+                    // record that prevents preparation of the next launch.
+                    fs::rename(&stage_file, &active_file)?;
+                }
+                let active = if active_file.exists() {
+                    Some(read_path(active_file, &entry.name)?)
+                } else {
+                    None
+                };
+                drop(rt);
+                if windows.iter().any(|window| {
+                    window["app_id"].as_str() == Some(entry.app_id.as_str())
+                        || active.as_ref().is_some_and(|active| {
+                            window_in_unit(window, &active.unit).unwrap_or(false)
+                        })
+                }) {
+                    observed_open.insert(entry.name.clone());
+                    next_attempt.remove(&entry.name);
+                    continue;
+                }
+                if active.is_none()
+                    && !observed_open.remove(&entry.name)
+                    && !next_attempt.contains_key(&entry.name)
+                {
+                    continue;
+                }
+                observed_open.remove(&entry.name);
+                let now = Instant::now();
+                let deadline = next_attempt
+                    .entry(entry.name.clone())
+                    .or_insert_with(|| now + Duration::from_secs(cfg.restage_delay_sec));
+                if now < *deadline {
+                    continue;
+                }
+                if let Err(error) = stage(
+                    &entry.name,
+                    &entry.app_id,
+                    &entry.command,
+                    paths,
+                    cfg,
+                    debug,
+                ) {
+                    eprintln!("appwarm: could not restage {}: {error}", entry.name);
+                    *deadline = Instant::now() + Duration::from_secs(60);
+                } else {
+                    next_attempt.remove(&entry.name);
+                }
+            }
         }
         thread::sleep(Duration::from_secs(2));
     }
@@ -570,5 +762,17 @@ mod tests {
     fn app_id_cannot_inject_a_window_rule() {
         assert!(valid_app_id("dev.zed.Zed"));
         assert!(!valid_app_id("foo\"\nopen-on-workspace \"main"));
+    }
+
+    #[test]
+    fn stage_state_accepts_generated_units_and_rejects_other_units() {
+        let path = env::temp_dir().join(format!("appwarm-stage-test-{}", std::process::id()));
+        fs::write(&path, "appwarm-stage-zed-123.service\n42\ndev.zed.Zed\n").unwrap();
+        assert_eq!(read_path(path.clone(), "zed").unwrap().window_id, 42);
+        fs::write(&path, "appwarm-stage-zed-.service\n42\ndev.zed.Zed\n").unwrap();
+        assert!(read_path(path.clone(), "zed").is_err());
+        fs::write(&path, "appwarm-stage-other-123.service\n42\ndev.zed.Zed\n").unwrap();
+        assert!(read_path(path.clone(), "zed").is_err());
+        fs::remove_file(path).unwrap();
     }
 }

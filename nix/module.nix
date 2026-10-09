@@ -12,6 +12,7 @@ let
       (if app.stage.command == null then lib.getExe app.package else app.stage.command)
     ] ++ app.stage.arguments);
   stageEntries = cfg.stages ++ map stageEntry stagedApplications;
+  hasStages = stageEntries != [ ];
   warmApps = lib.unique (cfg.apps ++ map ({ name, ... }: name)
     (builtins.filter ({ app, ... }: app.warm) applications));
   stageEnv = "APPWARM_DEFAULT_STAGES=${lib.concatStringsSep ";" stageEntries}";
@@ -130,6 +131,11 @@ in
         default = 2000;
         description = "Delay after the first staged window appears, in milliseconds.";
       };
+      restage_delay_sec = lib.mkOption {
+        type = lib.types.ints.between 1 300;
+        default = 5;
+        description = "Seconds to wait after all application windows close before staging it again.";
+      };
     };
     niri = {
       enable = lib.mkEnableOption "the patched Niri compositor needed for hidden execution staging";
@@ -197,7 +203,7 @@ in
       };
     };
 
-    systemd.user.services.appwarm-desktop = {
+    systemd.user.services.appwarm-desktop = lib.mkIf hasStages {
       description = "Integrate staged apps with desktop launchers";
       wantedBy = [ "default.target" ];
       serviceConfig = {
@@ -207,7 +213,7 @@ in
       };
     };
 
-    systemd.user.services.appwarm-stage = {
+    systemd.user.services.appwarm-stage = lib.mkIf hasStages {
       description = "Stage selected apps after login";
       after = [ "graphical-session.target" ];
       serviceConfig = {
@@ -221,7 +227,7 @@ in
       };
     };
 
-    systemd.user.timers.appwarm-stage = {
+    systemd.user.timers.appwarm-stage = lib.mkIf hasStages {
       description = "Delay execution staging until after login";
       wantedBy = [ "default.target" ];
       timerConfig = {
@@ -231,13 +237,13 @@ in
       };
     };
 
-    systemd.user.services.appwarm-monitor = {
-      description = "Evict frozen Appwarm apps under memory pressure";
+    systemd.user.services.appwarm-monitor = lib.mkIf hasStages {
+      description = "Monitor staged apps, memory pressure, and app closure";
       wantedBy = [ "default.target" ];
       serviceConfig = {
         Type = "simple";
         ExecStart = "${cfg.package}/bin/appwarm monitor";
-        Environment = settingsEnv;
+        Environment = [ stageEnv ] ++ settingsEnv;
         Restart = "on-failure";
         RestartSec = "5s";
         Nice = 19;

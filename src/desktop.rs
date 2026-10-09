@@ -11,7 +11,7 @@ fn valid_desktop_id(id: &str) -> bool {
     id.ends_with(".desktop") && valid_name(id)
 }
 
-fn source(id: &str) -> io::Result<PathBuf> {
+pub(crate) fn source(id: &str) -> io::Result<PathBuf> {
     let user = env::var("USER").map_err(io::Error::other)?;
     let mut roots = vec![format!("/etc/profiles/per-user/{user}/share")];
     roots.extend(

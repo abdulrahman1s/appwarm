@@ -12,6 +12,7 @@ pub struct Config {
     pub max_file_mib: u64,
     pub stage_budget_mib: u64,
     pub stage_settle_ms: u64,
+    pub restage_delay_sec: u64,
     pub stages: Vec<String>,
     pub apps: String,
 }
@@ -25,9 +26,16 @@ impl Default for Config {
             max_file_mib: default_number("MAX_FILE_MIB", 16, 4096),
             stage_budget_mib: default_number("STAGE_BUDGET_MIB", 2048, 16384),
             stage_settle_ms: default_number("STAGE_SETTLE_MS", 2000, 30000),
+            restage_delay_sec: default_number("RESTAGE_DELAY_SEC", 5, 300),
             stages: env::var("APPWARM_DEFAULT_STAGES")
                 .ok()
-                .map(|value| value.split(';').map(str::to_owned).collect())
+                .map(|value| {
+                    value
+                        .split(';')
+                        .filter(|entry| !entry.is_empty())
+                        .map(str::to_owned)
+                        .collect()
+                })
                 .unwrap_or_default(),
             apps: env::var("APPWARM_DEFAULT_APPS").unwrap_or_default(),
         }
@@ -85,6 +93,7 @@ impl Config {
                     "max_file_mib" if n <= 4096 => cfg.max_file_mib = n,
                     "stage_budget_mib" if n <= 16384 => cfg.stage_budget_mib = n,
                     "stage_settle_ms" if n <= 30000 => cfg.stage_settle_ms = n,
+                    "restage_delay_sec" if n <= 300 => cfg.restage_delay_sec = n,
                     _ => {}
                 }
             }
