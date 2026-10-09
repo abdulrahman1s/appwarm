@@ -1,5 +1,5 @@
 { stdenvNoCC, lib, fetchurl, pkgs, niri, archive ? fetchurl {
-    url = "https://github.com/abdulrahman1s/appwarm/releases/download/v0.4.2/niri-appwarm-v0.4.2-x86_64-linux.tar.gz";
+    url = "https://github.com/abdulrahman1s/appwarm/releases/download/v0.4.3/niri-appwarm-v0.4.3-x86_64-linux.tar.gz";
     hash = "sha256-WsCTRA/0r+pE/ztOy5ogdnLwCCiGphH0ae3nbJWZ+4s=";
   } }:
 

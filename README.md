@@ -51,8 +51,8 @@ specialArgs = { inherit inputs; };
 
 # In your module:
 programs.appwarm.package = inputs.appwarm.lib.mkPrebuiltPackage pkgs {
-  version = "0.4.2";
-  hash = "sha256-OILa9K6ksJopw0nZRs8YhIf7KZx/BptpibSH8KoiWPM=";
+  version = "0.4.3";
+  hash = "sha256-PIiXsXnm2vnyRdK73v9Y4KknGEDVpG9YoII8Y7XULEk=";
 };
 ```
 
@@ -93,7 +93,7 @@ For sandboxed apps, set `applications.<name>.package` and `stage.command` to the
 
 ### Prebuilt patched Niri
 
-On x86_64 Linux, `programs.appwarm.niri.enable = true` uses the [prebuilt patched Niri](https://github.com/abdulrahman1s/appwarm/releases/tag/v0.4.2) by default. The release archive contains only the Niri package output (about 11 MiB); Nix fetches its libraries from a separate pinned nixpkgs input. The main `nixpkgs` input can follow yours as shown above. Set `programs.appwarm.niri.prebuilt = false` to compile Niri locally. A custom `niri.basePackage` or aarch64 Linux also builds from source.
+On x86_64 Linux, `programs.appwarm.niri.enable = true` uses the [prebuilt patched Niri](https://github.com/abdulrahman1s/appwarm/releases/tag/v0.4.3) by default. The release archive contains only the Niri package output (about 11 MiB); Nix fetches its libraries from a separate pinned nixpkgs input. The main `nixpkgs` input can follow yours as shown above. Set `programs.appwarm.niri.prebuilt = false` to compile Niri locally. A custom `niri.basePackage` or aarch64 Linux also builds from source.
 
 For manual control: `appwarm stage firefox --app-id firefox -- firefox`, `appwarm show firefox`, `appwarm staged`, and `appwarm evict firefox`.
 Run `appwarm doctor` in a Niri session to check the patched IPC, hidden workspace, configured desktop entries, and stage commands. The cgroup rule is verified when an app is staged.
