@@ -51,8 +51,8 @@ specialArgs = { inherit inputs; };
 
 # In your module:
 programs.appwarm.package = inputs.appwarm.lib.mkPrebuiltPackage pkgs {
-  version = "0.4.1";
-  hash = "sha256-3zS9o9xKfQII1H/1YHEV+3hLzV+pSB73NsYVmRrVg0M=";
+  version = "0.4.2";
+  hash = "sha256-OILa9K6ksJopw0nZRs8YhIf7KZx/BptpibSH8KoiWPM=";
 };
 ```
 
