@@ -216,6 +216,7 @@ in
     systemd.user.services.appwarm-stage = lib.mkIf hasStages {
       description = "Stage selected apps after login";
       after = [ "graphical-session.target" ];
+      path = [ config.programs.niri.package ];
       serviceConfig = {
         Type = "oneshot";
         ExecStart = "${cfg.package}/bin/appwarm stage-all";
@@ -229,7 +230,7 @@ in
 
     systemd.user.timers.appwarm-stage = lib.mkIf hasStages {
       description = "Delay execution staging until after login";
-      wantedBy = [ "default.target" ];
+      wantedBy = [ "graphical-session.target" ];
       timerConfig = {
         OnActiveSec = "2min";
         AccuracySec = "15s";
@@ -239,7 +240,10 @@ in
 
     systemd.user.services.appwarm-monitor = lib.mkIf hasStages {
       description = "Monitor staged apps, memory pressure, and app closure";
-      wantedBy = [ "default.target" ];
+      wantedBy = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      partOf = [ "graphical-session.target" ];
+      path = [ config.programs.niri.package ];
       serviceConfig = {
         Type = "simple";
         ExecStart = "${cfg.package}/bin/appwarm monitor";

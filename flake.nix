@@ -37,7 +37,7 @@
         appwarm = self.packages.${final.stdenv.hostPlatform.system}.appwarm;
       };
 
-      lib.mkPrebuiltPackage = pkgs: { version ? "0.4.2", hash }:
+      lib.mkPrebuiltPackage = pkgs: { version ? "0.4.3", hash }:
         pkgs.stdenvNoCC.mkDerivation {
           pname = "appwarm-prebuilt";
           inherit version;
