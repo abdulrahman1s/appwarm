@@ -243,6 +243,14 @@ fn unit_active(unit: &str) -> bool {
     run("systemctl", &["--user", "is-active", unit]).is_ok()
 }
 
+fn unit_frozen(unit: &str) -> io::Result<bool> {
+    let out = run(
+        "systemctl",
+        &["--user", "show", "-p", "FreezerState", "--value", unit],
+    )?;
+    Ok(String::from_utf8_lossy(&out.stdout).trim() == "frozen")
+}
+
 fn window_in_unit(window: &Value, unit: &str) -> io::Result<bool> {
     let Some(pid) = window["pid"].as_u64() else {
         return Ok(false);
@@ -676,18 +684,20 @@ pub fn monitor(paths: &Paths, cfg: &Config, debug: bool) -> io::Result<()> {
                 fs::remove_file(state_path(&rt, &candidate.name))?;
             }
         } else if !entries.is_empty() {
-            let windows = match window_list() {
-                Ok(windows) => windows,
-                Err(error) => {
-                    if debug {
-                        eprintln!("appwarm: waiting for Niri: {error}");
-                    }
-                    thread::sleep(Duration::from_secs(2));
-                    continue;
-                }
-            };
             for entry in &entries {
                 let rt = runtime()?;
+                // Stage and show hold this lock while changing records. A
+                // snapshot taken before acquiring it may predate a completed
+                // stage and misclassify its frozen window as closed.
+                let windows = match window_list() {
+                    Ok(windows) => windows,
+                    Err(error) => {
+                        if debug {
+                            eprintln!("appwarm: waiting for Niri: {error}");
+                        }
+                        break;
+                    }
+                };
                 let stage_file = state_path(&rt, &entry.name);
                 let active_file = active_path(&rt, &entry.name);
                 if stage_file.exists() {
@@ -706,10 +716,84 @@ pub fn monitor(paths: &Paths, cfg: &Config, debug: bool) -> io::Result<()> {
                     fs::rename(&stage_file, &active_file)?;
                 }
                 let active = if active_file.exists() {
-                    Some(read_path(active_file, &entry.name)?)
+                    Some(read_path(active_file.clone(), &entry.name)?)
                 } else {
                     None
                 };
+                if let Some(active) = &active {
+                    let hidden_ids = hidden_workspace_ids()?;
+                    let hidden_windows: Vec<_> = windows
+                        .iter()
+                        .filter(|window| {
+                            window["workspace_id"]
+                                .as_u64()
+                                .is_some_and(|id| hidden_ids.contains(&id))
+                                && window_in_unit(window, &active.unit).unwrap_or(false)
+                        })
+                        .collect();
+                    if hidden_windows
+                        .iter()
+                        .any(|window| window["id"].as_u64() == Some(active.window_id))
+                        && unit_frozen(&active.unit)?
+                    {
+                        // Older monitors could misclassify a freshly staged
+                        // window. Restore its record without thawing it.
+                        fs::rename(&active_file, &stage_file)?;
+                        continue;
+                    }
+                    if !hidden_windows.is_empty() {
+                        // The Niri cgroup rule also catches windows opened by
+                        // the same process after reveal. Send them to the
+                        // revealed window's workspace, or the current one if
+                        // that window has since closed.
+                        let workspaces = niri(&["msg", "--json", "workspaces"])?;
+                        let destination = windows
+                            .iter()
+                            .find(|window| {
+                                window["id"].as_u64() == Some(active.window_id)
+                                    && !window["workspace_id"]
+                                        .as_u64()
+                                        .is_some_and(|id| hidden_ids.contains(&id))
+                            })
+                            .and_then(|window| {
+                                workspaces
+                                    .as_array()?
+                                    .iter()
+                                    .find(|workspace| workspace["id"] == window["workspace_id"])
+                            })
+                            .and_then(|workspace| {
+                                workspace["name"]
+                                    .as_str()
+                                    .map(str::to_owned)
+                                    .or_else(|| workspace["idx"].as_u64().map(|n| n.to_string()))
+                            })
+                            .or_else(|| focused_workspace().ok());
+                        if let Some(destination) = destination {
+                            for window in hidden_windows {
+                                if let Some(id) = window["id"].as_u64() {
+                                    if let Err(error) = run(
+                                        "niri",
+                                        &[
+                                            "msg",
+                                            "action",
+                                            "move-window-to-workspace",
+                                            "--window-id",
+                                            &id.to_string(),
+                                            "--focus",
+                                            "false",
+                                            &destination,
+                                        ],
+                                    ) {
+                                        eprintln!(
+                                            "appwarm: could not route new {} window: {error}",
+                                            entry.name
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 drop(rt);
                 if windows.iter().any(|window| {
                     window["app_id"].as_str() == Some(entry.app_id.as_str())
